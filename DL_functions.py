@@ -17,11 +17,11 @@ def data_split(z_data, r_data, m_data, target_data, ratio, split):
     :return: train and test data
     '''
 
-    ff_n = m_data.shape[1]  # factor number
-    port_n = target_data.shape[1]  # target (portfolio) number
-    [t, n] = r_data.shape  # time length and stock number
-    p = int(z_data.shape[1] / n)  # characteristics number
-    z_data = z_data.reshape((t, p, n)).transpose((0, 2, 1))   # dim: (t,n,p)
+    ff_n            = m_data.shape[1]  # factor number
+    port_n          = target_data.shape[1]  # target (portfolio) number
+    [t, n]          = r_data.shape  # time length and stock number
+    p               = int(z_data.shape[1] / n)  # characteristics number
+    z_data          = z_data.reshape((t, p, n)).transpose((0, 2, 1))   # dim: (t,n,p)
 
     # train sample and test sample
     if split == 'future':
@@ -29,16 +29,16 @@ def data_split(z_data, r_data, m_data, target_data, ratio, split):
     else:
         test_idx = np.arange(0, t, split)
 
-    train_idx = np.setdiff1d(np.arange(t), test_idx)
-    t_train = np.alen(train_idx)
-    z_train = z_data[train_idx]
-    z_test = z_data[test_idx]
-    r_train = r_data[train_idx]
-    r_test = r_data[test_idx]
-    target_train = target_data[train_idx]
-    target_test = target_data[test_idx]
-    m_train = m_data[train_idx]
-    m_test = m_data[test_idx]
+    train_idx       = np.setdiff1d(np.arange(t), test_idx)
+    t_train         = np.alen(train_idx)
+    z_train         = z_data[train_idx]
+    z_test          = z_data[test_idx]
+    r_train         = r_data[train_idx]
+    r_test          = r_data[test_idx]
+    target_train    = target_data[train_idx]
+    target_test     = target_data[test_idx]
+    m_train         = m_data[train_idx]
+    m_test          = m_data[test_idx]
 
     return z_train, r_train, m_train, target_train, z_test, r_test, m_test, target_test, ff_n, port_n, t_train, n, p
 
@@ -53,11 +53,10 @@ def add_layer_1(inputs, in_size, out_size, activation, keep=0.5):
     :param keep: dropout
     :return: new layer
     '''
-    weights = tf.Variable(tf.random_normal([in_size, out_size]))
-    biases = tf.Variable(tf.random_normal([out_size]))
-    wxb = tf.tensordot(tf.nn.dropout(inputs, keep),
-                       weights, axes=[[2], [0]]) + biases
-    outputs = activation(wxb)
+    weights     = tf.Variable(tf.random_normal([in_size, out_size]))
+    biases      = tf.Variable(tf.random_normal([out_size]))
+    wxb         = tf.tensordot(tf.nn.dropout(inputs, keep), weights, axes=[[2], [0]]) + biases
+    outputs     = activation(wxb)
     return outputs
 
 
@@ -90,50 +89,49 @@ def dl_alpha(data, layer_size, para):
                    para['train_ratio'], para['split'])
 
     # the last element of layer_size is the number of deep factors
-    fsort_number = layer_size[-1]
+    fsort_number    = layer_size[-1]
 
     # create deep learning graph
-    z = tf.placeholder(tf.float32, [None, n, p])
-    r = tf.placeholder(tf.float32, [None, None])
-    target = tf.placeholder(tf.float32, [None, port_n])
-    m = tf.placeholder(tf.float32, [None, ff_n])
+    z               = tf.placeholder(tf.float32, [None, n, p])
+    r               = tf.placeholder(tf.float32, [None, None])
+    target          = tf.placeholder(tf.float32, [None, port_n])
+    m               = tf.placeholder(tf.float32, [None, ff_n])
 
     # create graph for sorting
     with tf.name_scope('sorting_network'):
         # add 1st network (prior to sorting)
-        layer_number_tanh = layer_size.__len__()
-        layer_size = np.insert(layer_size, 0, p)
-        layers_1 = [z]
+        layer_number_tanh   = layer_size.__len__()
+        layer_size          = np.insert(layer_size, 0, p)
+        layers_1            = [z]
         for i in range(layer_number_tanh):
-            new_layer = add_layer_1(
-                layers_1[i], layer_size[i], layer_size[i + 1], para['activation'])
+            new_layer       = add_layer_1(layers_1[i], layer_size[i], layer_size[i + 1], para['activation'])
             layers_1.append(new_layer)
 
         # softmax rank weight
-        normalized_char = tf.keras.layers.BatchNormalization(axis=1)(layers_1[-1], training=True)
-        transformed_char_a = -50*tf.exp(-5*normalized_char)
-        transformed_char_b = -50*tf.exp(5*normalized_char)
-        w_tilde = tf.transpose(tf.nn.softmax(transformed_char_a, axis=1) - tf.nn.softmax(transformed_char_b, axis=1), [0,2,1])
+        normalized_char     = tf.keras.layers.BatchNormalization(axis=1)(layers_1[-1], training=True)
+        transformed_char_a  = -50*tf.exp(-5*normalized_char)
+        transformed_char_b  = -50*tf.exp(5*normalized_char)
+        w_tilde             = tf.transpose(tf.nn.softmax(transformed_char_a, axis=1) - tf.nn.softmax(transformed_char_b, axis=1), [0,2,1])
 
         # construct factors
-        nobs = tf.shape(r)[0]
-        r_tensor = tf.reshape(r, [nobs, n, 1])
-        f_tensor = tf.matmul(w_tilde, r_tensor)
-        f = tf.reshape(f_tensor, [nobs, fsort_number])
+        nobs                = tf.shape(r)[0]
+        r_tensor            = tf.reshape(r, [nobs, n, 1])
+        f_tensor            = tf.matmul(w_tilde, r_tensor)
+        f                   = tf.reshape(f_tensor, [nobs, fsort_number])
 
         # forecast  and alpha
-        beta = tf.Variable(tf.random_normal([layer_size[-1], port_n]))
-        gamma = tf.Variable(tf.random_normal([ff_n, port_n]))
-        target_hat = tf.matmul(f, beta) + tf.matmul(m, gamma)
-        alpha  = tf.reduce_mean(target - target_hat,axis=0) 
+        beta                = tf.Variable(tf.random_normal([layer_size[-1], port_n]))
+        gamma               = tf.Variable(tf.random_normal([ff_n, port_n]))
+        target_hat          = tf.matmul(f, beta) + tf.matmul(m, gamma)
+        alpha               = tf.reduce_mean(target - target_hat,axis=0) 
 
         # define loss and training parameters
-        zero = tf.zeros([port_n,])
-        loss = tf.losses.mean_squared_error(target, target_hat) + para['Lambda']*tf.losses.mean_squared_error(zero, alpha)
-        train = para['train_algo'](para['learning_rate']).minimize(loss)
+        zero                = tf.zeros([port_n,])
+        loss                = tf.losses.mean_squared_error(target, target_hat) + para['Lambda']*tf.losses.mean_squared_error(zero, alpha)
+        train               = para['train_algo'](para['learning_rate']).minimize(loss)
 
-    batch_number = int(t_train / para['batch_size'])
-    loss_path = []
+    batch_number    = int(t_train / para['batch_size'])
+    loss_path       = []
 
     # SGD training
     with tf.Session() as sess:
